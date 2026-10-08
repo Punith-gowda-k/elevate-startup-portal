@@ -1,56 +1,13 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
-const CSRF_TOKEN_ID_KEY = "ksfp_csrf_token_id";
-const CSRF_TOKEN_KEY = "ksfp_csrf_token";
-
-async function getCsrfToken() {
-  let id = sessionStorage.getItem(CSRF_TOKEN_ID_KEY);
-  let token = sessionStorage.getItem(CSRF_TOKEN_KEY);
-  if (!id || !token) {
-    try {
-      const res = await fetch(`${API_URL}/api/csrf-token`, {
-        method: "GET",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        id = data.csrfTokenId;
-        token = data.csrfToken;
-        sessionStorage.setItem(CSRF_TOKEN_ID_KEY, id);
-        sessionStorage.setItem(CSRF_TOKEN_KEY, token);
-      }
-    } catch {
-      // Non-blocking: CSRF will be skipped if token retrieval fails
-    }
-  }
-  return { id, token };
-}
 
 async function request(path, options = {}) {
   const isFormData = options.body instanceof FormData;
-  const { id, token } = await getCsrfToken();
-
-  const headers = {
-    ...options.headers,
-  };
-
-  if (!isFormData && token) {
-    headers["x-csrf-token"] = token;
-    headers["x-csrf-token-id"] = id;
-  }
-
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: isFormData
       ? options.headers
-      : { "Content-Type": "application/json", ...headers },
+      : { "Content-Type": "application/json", ...(options.headers || {}) },
   });
-
-  // Clear CSRF token if server returns 403
-  if (response.status === 403) {
-    sessionStorage.removeItem(CSRF_TOKEN_ID_KEY);
-    sessionStorage.removeItem(CSRF_TOKEN_KEY);
-  }
-
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.error || "The database operation failed.");
