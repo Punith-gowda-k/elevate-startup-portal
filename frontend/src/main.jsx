@@ -193,7 +193,10 @@ function LoginPage({ onLogin, onRegister }) {
         <PortalHeader />
         <div className="visual-content">
           <span className="eyebrow">KARNATAKA STARTUP ECOSYSTEM</span>
-          <h1>Empowering Karnataka startups through transparent funding.</h1>
+          <h2>
+            Empowering Karnataka startups through Idea2PoC Grant-in-Aid Fund
+            Scheme.
+          </h2>
           <p>
             A secure portal prototype for startup registration, government fund
             tracking, utilization and transaction visibility.
