@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3002";
 
 async function request(path, options = {}) {
   const isFormData = options.body instanceof FormData;
@@ -29,6 +29,20 @@ export async function authenticateUser(email, password) {
     body: JSON.stringify({ email, password }),
   });
   return user;
+}
+
+export async function getEligibility(userId) {
+  const { eligibility } = await request(
+    `/api/eligibility/${encodeURIComponent(userId)}`,
+  );
+  return eligibility;
+}
+
+export async function verifyEligibility(userId, details) {
+  return request("/api/eligibility", {
+    method: "POST",
+    body: JSON.stringify({ userId, ...details }),
+  });
 }
 
 export async function getTransactions(userId) {

@@ -5,11 +5,13 @@ A React frontend backed by a PostgreSQL API for startup registration, login, and
 ## Setup
 
 1. Create the database: `createdb ksfp_portal`
-2. Apply the schema: `psql -d ksfp_portal -f database.sql`
+2. Apply the schema: `psql -d ksfp_portal -f database/schema.sql`
 3. Copy `.env.example` to `.env` and set `DATABASE_URL`.
 4. Install dependencies: `npm install`
 5. Start the API: `npm run server`
 6. Start the frontend: `npm run dev`
+
+The project is separated into `frontend`, `backend`, `database`, and `shared` directories.
 
 ## Database rules
 

@@ -15,6 +15,20 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users
   ALTER COLUMN cin DROP NOT NULL;
 
+CREATE TABLE IF NOT EXISTS eligibility (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  registration_state VARCHAR(40) NOT NULL CHECK (registration_state IN ('Karnataka', 'Other State')),
+  entity_type VARCHAR(30) NOT NULL CHECK (entity_type IN ('Private Limited', 'OPC', 'LLP', 'Partnership', 'Other')),
+  turnover NUMERIC(15,2) NOT NULL CHECK (turnover >= 0),
+  incorporation_date DATE NOT NULL,
+  innovation_idea TEXT NOT NULL CHECK (char_length(innovation_idea) BETWEEN 20 AND 5000),
+  status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Verified')),
+  verified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

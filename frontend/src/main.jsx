@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   CircleDollarSign,
+  Clock3,
   Eye,
   EyeOff,
   FileText,
@@ -24,10 +25,15 @@ import {
 import {
   addTransaction as addTransactionToDatabase,
   authenticateUser,
+  getEligibility,
   getTransactions,
   registerUser,
-} from "./database.js";
-import { validateLogin, validateRegistration } from "../validation.js";
+  verifyEligibility,
+} from "./api.js";
+import {
+  validateLogin,
+  validateRegistration,
+} from "../../shared/validation.js";
 import "./styles.css";
 
 const DEMO_FUND = {
@@ -99,13 +105,18 @@ function App() {
   const login = (data) => {
     setStartup(data);
     sessionStorage.setItem("ksfp_session", JSON.stringify(data));
-    setPage("dashboard");
+    setPage("eligibility");
   };
 
   const logout = () => {
     setStartup(null);
     sessionStorage.removeItem("ksfp_session");
     setPage("login");
+  };
+
+  const verified = () => {
+    setStartup((current) => ({ ...current, eligibilityVerified: true }));
+    setPage("dashboard");
   };
 
   return (
@@ -115,6 +126,13 @@ function App() {
       )}
       {page === "register" && (
         <RegisterPage onBack={() => setPage("login")} onRegistered={login} />
+      )}
+      {page === "eligibility" && startup && (
+        <EligibilityPage
+          startup={startup}
+          onVerified={verified}
+          onBack={logout}
+        />
       )}
       {page === "dashboard" && startup && (
         <Dashboard startup={startup} onLogout={logout} />
@@ -127,7 +145,7 @@ function PortalHeader({ compact = false }) {
   return (
     <header className={`portal-header ${compact ? "compact" : ""}`}>
       <div className="brand-mark">
-        <img src="./src/uploads/logo.jpg" alt="Logo" />
+        <img src="/uploads/logo.jpg" alt="Logo" />
       </div>
       <div>
         <div className="brand-title">Government of Karnataka</div>
@@ -485,6 +503,284 @@ function RegisterPage({ onBack, onRegistered }) {
   );
 }
 
+function EligibilityPage({ startup, onVerified, onBack }) {
+  const [form, setForm] = useState({
+    registrationState: "Karnataka",
+    entityType: "Private Limited",
+    turnover: "",
+    incorporationDate: "",
+    innovationIdea: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [verified, setVerified] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getEligibility(startup.id)
+      .then((record) => {
+        if (!active) return;
+        if (record) {
+          setForm({
+            registrationState: record.registration_state,
+            entityType: record.entity_type,
+            turnover: String(Number(record.turnover) / 10000000),
+            incorporationDate: record.incorporation_date.slice(0, 10),
+            innovationIdea: record.innovation_idea,
+          });
+          setVerified(record.status === "Verified");
+        }
+        setLoading(false);
+      })
+      .catch((databaseError) => {
+        if (active) {
+          setError(
+            databaseError.message || "Unable to load eligibility details.",
+          );
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [startup.id]);
+
+  const update = (key, value) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+
+    if (form.registrationState !== "Karnataka") {
+      setError("Startup should be from Karnataka.");
+      return;
+    }
+    const turnoverInCrores = Number(form.turnover);
+    if (
+      !form.turnover ||
+      !Number.isFinite(turnoverInCrores) ||
+      turnoverInCrores < 0
+    ) {
+      setError("Enter a valid current turnover.");
+      return;
+    }
+    if (turnoverInCrores >= 100) {
+      setError("Overall turnover should be less than 100 crore.");
+      return;
+    }
+    const incorporationDate = new Date(`${form.incorporationDate}T00:00:00Z`);
+    const tenYearsAgo = new Date();
+    tenYearsAgo.setUTCFullYear(tenYearsAgo.getUTCFullYear() - 10);
+    if (
+      !form.incorporationDate ||
+      Number.isNaN(incorporationDate.getTime()) ||
+      incorporationDate > new Date() ||
+      incorporationDate < tenYearsAgo
+    ) {
+      setError("Date of incorporation must be under 10 years.");
+      return;
+    }
+    if (form.innovationIdea.trim().length < 20) {
+      setError("Describe your innovation idea in at least 20 characters.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const result = await verifyEligibility(startup.id, {
+        ...form,
+        turnover: String(turnoverInCrores * 10000000),
+      });
+      if (!result.eligible) {
+        setError(`You are not eligible. ${result.failedReasons.join(" ")}`);
+        return;
+      }
+      setVerified(true);
+      setError("");
+    } catch (databaseError) {
+      setError(databaseError.message || "Unable to verify the startup.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="eligibility-page">
+      <header className="eligibility-header">
+        <button className="back-btn" onClick={onBack}>
+          <ChevronLeft size={18} /> Back to login
+        </button>
+        <PortalHeader compact />
+      </header>
+
+      <main className="eligibility-container">
+        <div className="eligibility-heading">
+          <span className="eligibility-icon">
+            <ShieldCheck size={28} />
+          </span>
+          <span className="eyebrow">STARTUP ELIGIBILITY</span>
+          <h1>Verify your startup</h1>
+          <p>
+            Complete the information below to check your startup against the
+            Karnataka funding eligibility requirements.
+          </p>
+        </div>
+
+        {error && <div className="alert error">{error}</div>}
+
+        {loading ? (
+          <div className="eligibility-card loading-card">
+            Loading eligibility details...
+          </div>
+        ) : verified ? (
+          <div className="eligibility-card verified-card">
+            <CheckCircle2 size={42} />
+            <h2>Startup verified</h2>
+            <p>
+              Your eligibility information has been submitted and verified
+              successfully.
+            </p>
+            <button className="primary-btn" onClick={onVerified}>
+              Continue to dashboard
+            </button>
+          </div>
+        ) : (
+          <form className="eligibility-card" onSubmit={submit}>
+            <section className="eligibility-section">
+              <div className="eligibility-section-heading">
+                <span>01</span>
+                <div>
+                  <h2>Company registration</h2>
+                  <p>Tell us where your startup is registered.</p>
+                </div>
+              </div>
+              <div className="eligibility-grid">
+                <div className="field">
+                  <label htmlFor="registration-state">
+                    State of company registration
+                  </label>
+                  <select
+                    id="registration-state"
+                    value={form.registrationState}
+                    onChange={(event) =>
+                      update("registrationState", event.target.value)
+                    }
+                    required
+                  >
+                    <option>Karnataka</option>
+                    <option>Other State</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="entity-type">Type of entity</label>
+                  <select
+                    id="entity-type"
+                    value={form.entityType}
+                    onChange={(event) =>
+                      update("entityType", event.target.value)
+                    }
+                    required
+                  >
+                    <option>Private Limited</option>
+                    <option>OPC</option>
+                    <option>LLP</option>
+                    <option>Partnership</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="turnover">Overall turnover (crores)</label>
+                  <div className="currency-input">
+                    <span>₹</span>
+                    <input
+                      id="turnover"
+                      type="number"
+                      min="0"
+                      max="99.99"
+                      step="0.01"
+                      value={form.turnover}
+                      onChange={(event) =>
+                        update("turnover", event.target.value)
+                      }
+                      placeholder="Enter turnover in crores"
+                      required
+                    />
+                    <small>crores</small>
+                  </div>
+                </div>
+                <div className="field">
+                  <label htmlFor="incorporation-date">
+                    Date of incorporation
+                  </label>
+                  <input
+                    id="incorporation-date"
+                    type="date"
+                    value={form.incorporationDate}
+                    onChange={(event) =>
+                      update("incorporationDate", event.target.value)
+                    }
+                    required
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="eligibility-section">
+              <div className="eligibility-section-heading">
+                <span>02</span>
+                <div>
+                  <h2>Describe your innovation idea</h2>
+                  <p>
+                    Explain the problem, solution, market, and expected impact.
+                  </p>
+                </div>
+              </div>
+              <div className="field idea-field">
+                <label htmlFor="innovation-idea">Innovation idea</label>
+                <textarea
+                  id="innovation-idea"
+                  value={form.innovationIdea}
+                  onChange={(event) =>
+                    update("innovationIdea", event.target.value)
+                  }
+                  placeholder="Describe your startup idea, target customers, unique innovation, and expected impact..."
+                  minLength="20"
+                  maxLength="5000"
+                  rows="8"
+                  required
+                />
+                <small>
+                  {form.innovationIdea.trim().length}/5000 characters
+                </small>
+              </div>
+            </section>
+
+            <div className="eligibility-notice">
+              <ShieldCheck size={18} />
+              <p>
+                By verifying, you confirm that the information provided is
+                accurate and complete.
+              </p>
+            </div>
+
+            <div className="eligibility-actions">
+              <button type="button" className="secondary-btn" onClick={onBack}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-btn" disabled={saving}>
+                {saving ? "Verifying startup..." : "Verify the startup"}
+                <CheckCircle2 size={18} />
+              </button>
+            </div>
+          </form>
+        )}
+      </main>
+    </div>
+  );
+}
+
 function Field({
   label,
   type = "text",
@@ -577,7 +873,7 @@ function Dashboard({ startup, onLogout }) {
         <div className="side-brand">
           <div className="brand-mark">
             {" "}
-            <img src="./src/uploads/logo.jpg" alt="Logo" />
+            <img src="/uploads/logo.jpg" alt="Logo" />
           </div>
           <div>
             <strong>Karnataka</strong>
@@ -1023,6 +1319,36 @@ function TransactionTable({ transactions, compact = false }) {
 }
 
 function Profile({ startup }) {
+  const [eligibility, setEligibility] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    getEligibility(startup.id)
+      .then((record) => {
+        if (active) {
+          setEligibility(record);
+          setLoading(false);
+        }
+      })
+      .catch((databaseError) => {
+        if (active) {
+          setError(
+            databaseError.message || "Unable to load eligibility details.",
+          );
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [startup.id]);
+
+  const verified = eligibility?.status === "Verified";
+  const statusLabel =
+    eligibility?.status === "Verified" ? "Verified" : "Pending verification";
+
   return (
     <div className="content">
       <section className="panel profile-panel">
@@ -1035,10 +1361,16 @@ function Profile({ startup }) {
             <h1>{startup.startupName}</h1>
             <p>Startup fund portal account</p>
           </div>
-          <span className="verified">
-            <CheckCircle2 size={18} /> Verified
+          <span
+            className={`verified ${verified ? "verified-status" : "pending-status"}`}
+          >
+            {verified ? <CheckCircle2 size={18} /> : <Clock3 size={18} />}
+            {statusLabel}
           </span>
         </div>
+
+        {error && <div className="alert error">{error}</div>}
+
         <div className="profile-grid">
           <ProfileItem
             icon={UserRound}
@@ -1052,6 +1384,71 @@ function Profile({ startup }) {
             label="CIN / Registration number"
             value={startup.cin}
           />
+          <ProfileItem
+            icon={Building2}
+            label="State of registration"
+            value={eligibility?.registration_state || "Not provided"}
+          />
+          <ProfileItem
+            icon={Building2}
+            label="Entity type"
+            value={eligibility?.entity_type || "Not provided"}
+          />
+          <ProfileItem
+            icon={IndianRupee}
+            label="Current turnover"
+            value={
+              eligibility ? money(Number(eligibility.turnover)) : "Not provided"
+            }
+          />
+          <ProfileItem
+            icon={FileText}
+            label="Date of incorporation"
+            value={
+              eligibility?.incorporation_date
+                ? new Date(
+                    `${eligibility.incorporation_date}T00:00:00Z`,
+                  ).toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  })
+                : "Not provided"
+            }
+          />
+        </div>
+
+        <div className="eligibility-profile-section">
+          <div className="eligibility-profile-heading">
+            <span className="eligibility-icon">
+              <ShieldCheck size={22} />
+            </span>
+            <div>
+              <span className="eyebrow">ELIGIBILITY VERIFICATION</span>
+              <h2>Startup information</h2>
+            </div>
+          </div>
+          {loading ? (
+            <div className="eligibility-profile-loading">
+              Loading eligibility information...
+            </div>
+          ) : (
+            <div className="eligibility-profile-details">
+              <div>
+                <span>Innovation idea</span>
+                <p>{eligibility?.innovation_idea || "Not provided"}</p>
+              </div>
+              <div>
+                <span>Verification date</span>
+                <p>
+                  {eligibility?.verified_at
+                    ? new Date(eligibility.verified_at).toLocaleString("en-IN")
+                    : "Not verified"}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </div>

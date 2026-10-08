@@ -50,11 +50,10 @@ button {
   color: var(--navy);
 }
 .brand-mark {
-  width: 70px;
-  height: 70px;
+  width: 56px;
+  height: 56px;
   display: grid;
   place-items: center;
-  border: 2px solid currentColor;
   border-radius: 10px;
   font-size: 23px;
   font-weight: 800;
@@ -69,11 +68,13 @@ button {
   opacity: 0.78;
   margin-top: 3px;
 }
-img {
-  width: 70px;
-  height: 70px;
-  /* object-fit: cover; */
+.brand-mark img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border: 2px solid currentColor;
   border-radius: 8px;
+  box-sizing: border-box;
 }
 
 .auth-layout {
@@ -414,6 +415,175 @@ img {
   background: #fbfcfd;
 }
 
+.eligibility-page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+.eligibility-header {
+  height: 78px;
+  padding: 0 5%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+}
+.eligibility-container {
+  width: min(900px, 90%);
+  margin: 45px auto;
+}
+.eligibility-heading {
+  max-width: 690px;
+  margin-bottom: 28px;
+}
+.eligibility-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  border-radius: 15px;
+  background: #eaf2fb;
+  color: var(--navy);
+}
+.eligibility-heading h1 {
+  margin: 8px 0 10px;
+  font-size: 38px;
+  letter-spacing: -1px;
+}
+.eligibility-heading p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.eligibility-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 10px 35px rgba(18, 59, 109, 0.06);
+  overflow: hidden;
+}
+.eligibility-section {
+  padding: 29px 32px;
+  border-bottom: 1px solid var(--border);
+}
+.eligibility-section-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  margin-bottom: 23px;
+}
+.eligibility-section-heading > span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: #edf4fb;
+  color: var(--navy);
+  font-size: 10px;
+  font-weight: 800;
+}
+.eligibility-section-heading h2 {
+  margin: 1px 0 4px;
+  font-size: 16px;
+}
+.eligibility-section-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.eligibility-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px 22px;
+}
+.currency-input {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.currency-input:focus-within {
+  border-color: #6e9bc8;
+  box-shadow: 0 0 0 3px #eaf2fb;
+}
+.currency-input span {
+  padding-left: 13px;
+  color: var(--navy);
+  font-weight: 700;
+}
+.currency-input input {
+  height: 100%;
+  border: 0;
+  box-shadow: none;
+}
+.idea-field textarea {
+  min-height: 150px;
+  width: 100%;
+  resize: vertical;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  color: var(--text);
+  line-height: 1.6;
+}
+.idea-field textarea:focus {
+  border-color: #6e9bc8;
+  box-shadow: 0 0 0 3px #eaf2fb;
+}
+.idea-field small {
+  color: var(--muted);
+  text-align: right;
+  font-size: 9px;
+}
+.eligibility-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 32px;
+  padding: 15px;
+  border-radius: 9px;
+  background: #f1faf6;
+  color: var(--green-dark);
+}
+.eligibility-notice p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.eligibility-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 22px 32px;
+}
+.loading-card,
+.verified-card {
+  padding: 55px 30px;
+  text-align: center;
+}
+.loading-card {
+  color: var(--muted);
+  font-size: 12px;
+}
+.verified-card svg {
+  color: var(--green-dark);
+}
+.verified-card h2 {
+  margin: 14px 0 7px;
+}
+.verified-card p {
+  max-width: 500px;
+  margin: 0 auto 22px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .dashboard {
   min-height: 100vh;
   display: flex;
@@ -434,8 +604,8 @@ img {
   padding: 0 8px 25px;
 }
 .side-brand .brand-mark {
-  width: 73px;
-  height: 75px;
+  width: 56px;
+  height: 56px;
   color: var(--navy);
   font-size: 20px;
 }
@@ -596,6 +766,14 @@ img {
   font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
+}
+.verified-status {
+  background: #eaf8f2;
+  color: var(--green-dark);
+}
+.pending-status {
+  background: #fff4e5;
+  color: #a15c00;
 }
 .welcome-banner .verified {
   background: rgba(255, 255, 255, 0.12);
@@ -869,6 +1047,62 @@ td strong {
   overflow-wrap: anywhere;
 }
 
+.eligibility-profile-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.eligibility-profile-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.eligibility-profile-heading h2 {
+  margin: 4px 0 0;
+  font-size: 17px;
+}
+
+.eligibility-profile-details {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 18px;
+}
+
+.eligibility-profile-details > div {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fbfcfd;
+}
+
+.eligibility-profile-details span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.eligibility-profile-details p {
+  margin: 7px 0 0;
+  color: #344054;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.eligibility-profile-loading {
+  padding: 20px;
+  border-radius: 10px;
+  background: #f7f9fb;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   .auth-layout {
     grid-template-columns: 1fr;
@@ -952,6 +1186,32 @@ td strong {
   .register-actions button {
     width: 100%;
   }
+  .eligibility-header {
+    padding: 0 5%;
+  }
+  .eligibility-container {
+    width: 92%;
+    margin: 28px auto;
+  }
+  .eligibility-heading h1 {
+    font-size: 30px;
+  }
+  .eligibility-section {
+    padding: 23px 18px;
+  }
+  .eligibility-grid {
+    grid-template-columns: 1fr;
+  }
+  .eligibility-notice {
+    margin: 0 18px;
+  }
+  .eligibility-actions {
+    padding: 18px;
+    flex-direction: column-reverse;
+  }
+  .eligibility-actions button {
+    width: 100%;
+  }
   .welcome-banner {
     align-items: flex-start;
     flex-direction: column;
@@ -972,7 +1232,8 @@ td strong {
   .user-chip div:last-child {
     display: none;
   }
-  .profile-grid {
+  .profile-grid,
+  .eligibility-profile-details {
     grid-template-columns: 1fr;
   }
   .profile-hero {

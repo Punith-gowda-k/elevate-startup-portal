@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "server": "node server.js",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "vite --config frontend/vite.config.js",
+    "server": "node backend/server.js",
+    "build": "vite build --config frontend/vite.config.js",
+    "preview": "vite preview --config frontend/vite.config.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

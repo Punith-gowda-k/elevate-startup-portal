@@ -150,6 +150,128 @@ app.post("/api/login", async (request, response) => {
   }
 });
 
+app.get("/api/eligibility/:userId", async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT registration_state, entity_type, turnover, incorporation_date,
+              innovation_idea, status, verified_at
+       FROM eligibility
+       WHERE user_id = $1`,
+      [request.params.userId],
+    );
+    return response.json({ eligibility: result.rows[0] || null });
+  } catch (error) {
+    console.error(error);
+    return response.status(500).json({ error: "Unable to load eligibility." });
+  }
+});
+
+app.post("/api/eligibility", async (request, response) => {
+  const {
+    userId,
+    registrationState,
+    entityType,
+    turnover,
+    incorporationDate,
+    innovationIdea,
+  } = request.body;
+  const numericTurnover = Number(turnover);
+  const innovationLength = String(innovationIdea || "").trim().length;
+  const failedReasons = [];
+
+  if (!userId) {
+    return response.status(400).json({ error: "Startup account is required." });
+  }
+  if (registrationState !== "Karnataka") {
+    failedReasons.push("State of company registration must be Karnataka.");
+  }
+  if (
+    !["Private Limited", "OPC", "LLP", "Partnership", "Other"].includes(
+      entityType,
+    )
+  ) {
+    failedReasons.push("The entity type is invalid.");
+  }
+  if (!Number.isFinite(numericTurnover) || numericTurnover < 0) {
+    failedReasons.push("Current turnover must be a valid non-negative amount.");
+  } else if (numericTurnover >= 1000000000) {
+    failedReasons.push("Current turnover must be below ₹100 crore.");
+  }
+
+  const incorporationMatch = /^\d{4}-\d{2}-\d{2}$/.test(
+    incorporationDate || "",
+  );
+  let incorporationDateValue = null;
+  if (incorporationMatch) {
+    incorporationDateValue = new Date(`${incorporationDate}T00:00:00Z`);
+    if (!Number.isNaN(incorporationDateValue.getTime())) {
+      const tenYearsAgo = new Date();
+      tenYearsAgo.setUTCFullYear(tenYearsAgo.getUTCFullYear() - 10);
+      if (
+        incorporationDateValue > new Date() ||
+        incorporationDateValue < tenYearsAgo
+      ) {
+        failedReasons.push(
+          "Date of incorporation must be within the last 10 years.",
+        );
+      }
+    } else {
+      failedReasons.push("Date of incorporation must be a valid date.");
+    }
+  } else {
+    failedReasons.push("Date of incorporation must be a valid date.");
+  }
+
+  if (innovationLength < 20 || innovationLength > 5000) {
+    failedReasons.push(
+      "Describe your innovation idea in 20 to 5,000 characters.",
+    );
+  }
+
+  const eligible = failedReasons.length === 0;
+  const status = eligible ? "Verified" : "Pending";
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO eligibility (
+         user_id, registration_state, entity_type, turnover,
+         incorporation_date, innovation_idea, status, verified_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (user_id) DO UPDATE
+       SET registration_state = EXCLUDED.registration_state,
+           entity_type = EXCLUDED.entity_type,
+           turnover = EXCLUDED.turnover,
+           incorporation_date = EXCLUDED.incorporation_date,
+           innovation_idea = EXCLUDED.innovation_idea,
+           status = EXCLUDED.status,
+           verified_at = CASE WHEN EXCLUDED.status = 'Verified' THEN CURRENT_TIMESTAMP ELSE eligibility.verified_at END,
+           updated_at = CURRENT_TIMESTAMP
+       RETURNING registration_state, entity_type, turnover, incorporation_date,
+                 innovation_idea, status, verified_at`,
+      [
+        userId,
+        registrationState,
+        entityType,
+        numericTurnover,
+        incorporationDate,
+        innovationIdea.trim(),
+        status,
+        eligible ? new Date() : null,
+      ],
+    );
+    return response.status(200).json({
+      eligibility: result.rows[0],
+      eligible,
+      failedReasons,
+    });
+  } catch (error) {
+    console.error(error);
+    return response
+      .status(500)
+      .json({ error: "Unable to verify eligibility." });
+  }
+});
+
 app.get("/api/transactions/:userId", async (request, response) => {
   try {
     const result = await pool.query(
