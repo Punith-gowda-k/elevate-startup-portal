@@ -31,6 +31,38 @@ export async function authenticateUser(email, password) {
   return user;
 }
 
+export async function authenticateGM(email, password) {
+  const { admin, token } = await request("/api/gm/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  return { admin, token };
+}
+
+export async function getGMStartups(token) {
+  const { startups } = await request("/api/gm/startups", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return startups;
+}
+
+export async function getGMStartup(userId, token) {
+  const { startup } = await request(
+    `/api/gm/startups/${encodeURIComponent(userId)}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return startup;
+}
+
+export async function getGMTransactions(token) {
+  const { transactions } = await request("/api/gm/transactions", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return transactions;
+}
+
 export async function getEligibility(userId) {
   const { eligibility } = await request(
     `/api/eligibility/${encodeURIComponent(userId)}`,

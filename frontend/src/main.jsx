@@ -18,14 +18,19 @@ import {
   Phone,
   Plus,
   ReceiptIndianRupee,
+  Search,
   ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
 import {
   addTransaction as addTransactionToDatabase,
+  authenticateGM,
   authenticateUser,
   getEligibility,
+  getGMStartup,
+  getGMStartups,
+  getGMTransactions,
   getTransactions,
   registerUser,
   verifyEligibility,
@@ -101,6 +106,13 @@ function App() {
       return null;
     }
   });
+  const [gmSession, setGMSession] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("ksfp_gm_session")) || null;
+    } catch {
+      return null;
+    }
+  });
 
   const login = (data) => {
     setStartup(data);
@@ -114,6 +126,18 @@ function App() {
     setPage("login");
   };
 
+  const gmLogin = async (data) => {
+    setGMSession(data);
+    sessionStorage.setItem("ksfp_gm_session", JSON.stringify(data));
+    setPage("gm-dashboard");
+  };
+
+  const gmLogout = () => {
+    setGMSession(null);
+    sessionStorage.removeItem("ksfp_gm_session");
+    setPage("login");
+  };
+
   const verified = () => {
     setStartup((current) => ({ ...current, eligibilityVerified: true }));
     setPage("dashboard");
@@ -122,7 +146,14 @@ function App() {
   return (
     <div className="app-shell">
       {page === "login" && (
-        <LoginPage onLogin={login} onRegister={() => setPage("register")} />
+        <LoginPage
+          onLogin={login}
+          onRegister={() => setPage("register")}
+          onGMLogin={() => setPage("gm-login")}
+        />
+      )}
+      {page === "gm-login" && (
+        <GMLoginPage onLogin={gmLogin} onBack={() => setPage("login")} />
       )}
       {page === "register" && (
         <RegisterPage onBack={() => setPage("login")} onRegistered={login} />
@@ -136,6 +167,9 @@ function App() {
       )}
       {page === "dashboard" && startup && (
         <Dashboard startup={startup} onLogout={logout} />
+      )}
+      {page === "gm-dashboard" && gmSession && (
+        <GMDashboard session={gmSession} onLogout={gmLogout} />
       )}
     </div>
   );
@@ -155,7 +189,7 @@ function PortalHeader({ compact = false }) {
   );
 }
 
-function LoginPage({ onLogin, onRegister }) {
+function LoginPage({ onLogin, onRegister, onGMLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -282,11 +316,112 @@ function LoginPage({ onLogin, onRegister }) {
             New startup?{" "}
             <button onClick={onRegister}>Register your startup</button>
           </div>
+          <button className="gm-login-link" onClick={onGMLogin}>
+            Government Manager access
+          </button>
+        </div>
+      </main>
+    </div>
+  );
+}
 
-          {/* <p className="prototype-note">
-            Prototype interface — connect this UI to the official authentication
-            and government fund APIs before production use.
-          </p> */}
+function GMLoginPage({ onLogin, onBack }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const session = await authenticateGM(email, password);
+      onLogin({ ...session, email });
+    } catch (loginError) {
+      setError(loginError.message || "Unable to access the GM portal.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-layout">
+      <div className="auth-visual">
+        <div className="visual-overlay" />
+        <PortalHeader />
+        <div className="visual-content">
+          <span className="eyebrow">GOVERNMENT MANAGEMENT</span>
+          <h2>Monitor every Karnataka startup activity.</h2>
+          <p>
+            Review eligibility, founder details, fund utilization and
+            transaction records from one secure administration workspace.
+          </p>
+        </div>
+      </div>
+      <main className="auth-panel">
+        <div className="mobile-brand">
+          <PortalHeader compact />
+        </div>
+        <div className="auth-card">
+          <div className="card-icon">
+            <ShieldCheck size={25} />
+          </div>
+          <span className="eyebrow">GM PORTAL</span>
+          <h2>Government Manager</h2>
+          <p className="muted">Sign in to view all startup accounts.</p>
+          {error && <div className="alert error">{error}</div>}
+          <form onSubmit={submit} className="form">
+            <label>GM email address</label>
+            <div className="input-wrap">
+              <Mail size={18} />
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+            </div>
+            <label>Password</label>
+            <div className="input-wrap">
+              <ShieldCheck size={18} />
+              <input
+                type={show ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShow(!show)}
+              >
+                {show ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            <button
+              className="primary-btn full"
+              type="submit"
+              disabled={loading}
+            >
+              {loading ? (
+                "Signing in..."
+              ) : (
+                <>
+                  Sign in securely <ArrowRight size={18} />
+                </>
+              )}
+            </button>
+          </form>
+          <div className="auth-switch">
+            <button onClick={onBack}>
+              <ChevronLeft size={16} /> Back to startup login
+            </button>
+          </div>
+          <p className="prototype-note">
+            Preset credentials are configured in the server environment.
+          </p>
         </div>
       </main>
     </div>
@@ -802,6 +937,601 @@ function Field({
         placeholder={placeholder}
         required={required}
       />
+    </div>
+  );
+}
+
+function GMDashboard({ session, onLogout }) {
+  const [startups, setStartups] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [view, setView] = useState("dashboard");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const records = await getGMStartups(session.token);
+        const allTransactions = await getGMTransactions(session.token);
+        if (active) {
+          setStartups(records);
+          setTransactions(allTransactions);
+        }
+      } catch (loadError) {
+        if (active) setError(loadError.message || "Unable to load GM data.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [session.token]);
+
+  const loadStartup = async (userId) => {
+    setError("");
+    try {
+      setSelected(await getGMStartup(userId, session.token));
+      setMobileOpen(false);
+    } catch (loadError) {
+      setError(loadError.message || "Unable to load startup details.");
+    }
+  };
+
+  const filtered = startups.filter((startup) => {
+    const query = search.toLowerCase();
+    const matchesSearch =
+      !query ||
+      [
+        startup.startupName,
+        startup.founderName,
+        startup.email,
+        startup.cin,
+      ].some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(query),
+      );
+    const matchesStatus =
+      statusFilter === "All" || startup.eligibilityStatus === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+  const totalTransactions = transactions.length;
+  const verified = startups.filter(
+    (startup) => startup.eligibilityStatus === "Verified",
+  ).length;
+  const totalFund = transactions
+    .filter((transaction) => transaction.type === "Utilization")
+    .reduce((total, transaction) => total + Number(transaction.amount || 0), 0);
+
+  return (
+    <div className="gm-dashboard">
+      <aside className={`gm-sidebar ${mobileOpen ? "open" : ""}`}>
+        <div className="side-brand">
+          <div className="brand-mark">
+            <img src="/uploads/logo.jpg" alt="Logo" />
+          </div>
+          <div>
+            <strong>Karnataka</strong>
+            <span>GM Administration</span>
+          </div>
+          <button
+            className="icon-btn mobile-close"
+            onClick={() => setMobileOpen(false)}
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="side-label">ADMINISTRATION</div>
+        <button
+          className={`gm-nav ${view === "dashboard" && !selected ? "active" : ""}`}
+          onClick={() => {
+            setView("dashboard");
+            setSelected(null);
+          }}
+        >
+          <LayoutDashboard size={19} /> Dashboard
+        </button>
+        <button
+          className={`gm-nav ${view === "startups" && !selected ? "active" : ""}`}
+          onClick={() => {
+            setView("startups");
+            setSelected(null);
+          }}
+        >
+          <Building2 size={19} /> Startups
+        </button>
+        <button
+          className={`gm-nav ${view === "transactions" ? "active" : ""}`}
+          onClick={() => {
+            setView("transactions");
+            setSelected(null);
+          }}
+        >
+          <ReceiptIndianRupee size={19} /> Transactions
+        </button>
+        <div className="side-bottom">
+          <div className="security-mini">
+            <ShieldCheck size={18} />
+            <span>GM session secured</span>
+          </div>
+          <button className="nav-item logout" onClick={onLogout}>
+            <LogOut size={19} /> Logout
+          </button>
+        </div>
+      </aside>
+      {mobileOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+      <main className="dashboard-main gm-main">
+        <header className="dashboard-header">
+          <button className="menu-btn" onClick={() => setMobileOpen(true)}>
+            <Menu size={22} />
+          </button>
+          <div>
+            <span className="header-kicker">ADMIN CONTROL CENTER</span>
+            <h2>
+              {selected
+                ? `Startup: ${selected.startupName}`
+                : view === "dashboard"
+                  ? "GM dashboard"
+                  : view === "transactions"
+                    ? "Transactions"
+                    : "Startup directory"}
+            </h2>
+          </div>
+          <div className="user-chip">
+            <div className="avatar">GM</div>
+            <div>
+              <strong>Government Manager</strong>
+              <span>Administration portal</span>
+            </div>
+          </div>
+        </header>
+        {error && <div className="alert error">{error}</div>}
+        {selected ? (
+          <StartupDetail startup={selected} onBack={() => setSelected(null)} />
+        ) : view === "dashboard" ? (
+          <DashboardView
+            startups={startups}
+            transactions={transactions}
+            loading={loading}
+            verified={verified}
+            totalTransactions={totalTransactions}
+            totalFund={totalFund}
+          />
+        ) : view === "transactions" ? (
+          <TransactionsView transactions={transactions} loading={loading} />
+        ) : (
+          <StartupList
+            startups={filtered}
+            loading={loading}
+            search={search}
+            setSearch={setSearch}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+            verified={verified}
+            onSelect={loadStartup}
+          />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function DashboardView({
+  startups,
+  transactions,
+  loading,
+  verified,
+  totalTransactions,
+  totalFund,
+}) {
+  const statusCounts = startups.reduce(
+    (counts, startup) => {
+      const status = startup.eligibilityStatus || "Pending";
+      counts[status] = (counts[status] || 0) + 1;
+      return counts;
+    },
+    { Verified: 0, Pending: 0 },
+  );
+  const recentTransactions = transactions.slice(0, 5);
+
+  return (
+    <div className="content">
+      <div className="welcome-banner">
+        <div>
+          <span className="eyebrow">ADMINISTRATION OVERVIEW</span>
+          <h1>Dashboard</h1>
+          <p>
+            Monitor startup registrations, eligibility status, and government
+            fund activity.
+          </p>
+        </div>
+        <div className="verified">
+          <ShieldCheck size={19} /> Live administration data
+        </div>
+      </div>
+
+      <div className="stat-grid">
+        <StatCard
+          icon={Building2}
+          label="Registered startups"
+          value={String(startups.length)}
+          tone="blue"
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Verified startups"
+          value={String(verified)}
+          tone="green"
+        />
+        <StatCard
+          icon={ReceiptIndianRupee}
+          label="Total transactions"
+          value={String(totalTransactions)}
+          tone="orange"
+        />
+        <StatCard
+          icon={IndianRupee}
+          label="Tracked utilization"
+          value={money(totalFund)}
+          tone="blue"
+        />
+      </div>
+
+      <div className="dashboard-section-grid">
+        <section className="panel dashboard-status-panel">
+          <div className="panel-title">
+            <div>
+              <h3>Eligibility status</h3>
+              <p>Current startup verification distribution</p>
+            </div>
+            <ShieldCheck size={21} />
+          </div>
+          <div className="status-summary">
+            <div>
+              <span className="status-summary-dot verified" />
+              <strong>{statusCounts.Verified}</strong>
+              <small>Verified</small>
+            </div>
+            <div>
+              <span className="status-summary-dot pending" />
+              <strong>{statusCounts.Pending}</strong>
+              <small>Pending</small>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel dashboard-recent-panel">
+          <div className="panel-title">
+            <div>
+              <h3>Recent transactions</h3>
+              <p>Latest startup activity</p>
+            </div>
+            <ReceiptIndianRupee size={21} />
+          </div>
+          {loading ? (
+            <div className="database-loading">Loading dashboard...</div>
+          ) : recentTransactions.length ? (
+            <div className="dashboard-recent-list">
+              {recentTransactions.map((transaction) => (
+                <div className="dashboard-recent-item" key={transaction.id}>
+                  <div className="recent-icon">
+                    <ReceiptIndianRupee size={16} />
+                  </div>
+                  <div>
+                    <strong>{transaction.startupName}</strong>
+                    <span>{transaction.description}</span>
+                  </div>
+                  <div>
+                    <strong>{money(Number(transaction.amount))}</strong>
+                    <span>
+                      {new Date(transaction.date).toLocaleDateString("en-IN")}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              No transactions have been recorded.
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function StartupList({
+  startups,
+  loading,
+  search,
+  setSearch,
+  statusFilter,
+  setStatusFilter,
+  verified,
+  onSelect,
+}) {
+  return (
+    <div className="content">
+      <div className="welcome-banner">
+        <div>
+          <span className="eyebrow">PORTAL OVERVIEW</span>
+          <h1>Startup directory</h1>
+          <p>Search and select a startup to view its company details.</p>
+        </div>
+        <div className="verified">
+          <ShieldCheck size={19} /> Administration view
+        </div>
+      </div>
+      <div className="stat-grid">
+        <StatCard
+          icon={Building2}
+          label="Registered startups"
+          value={String(startups.length)}
+          tone="blue"
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Verified startups"
+          value={String(verified)}
+          tone="green"
+        />
+      </div>
+      <section className="panel gm-list-panel">
+        <div className="gm-toolbar">
+          <div>
+            <h3>All startups</h3>
+            <p>Select a company card to open its profile.</p>
+          </div>
+          <div className="gm-search">
+            <Search size={17} />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search startup or founder"
+            />
+          </div>
+          <select
+            className="filter-select"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+          >
+            <option>All</option>
+            <option>Verified</option>
+            <option>Pending</option>
+          </select>
+        </div>
+        {loading ? (
+          <div className="database-loading">Loading startup directory...</div>
+        ) : startups.length ? (
+          <div className="gm-startup-grid">
+            {startups.map((startup) => {
+              const status = startup.eligibilityStatus || "Pending";
+              return (
+                <button
+                  key={startup.id}
+                  className="gm-startup-card"
+                  onClick={() => onSelect(startup.id)}
+                >
+                  <div className="gm-card-top">
+                    <div className="gm-startup-icon">
+                      <Building2 size={20} />
+                    </div>
+                    <span className={`status-pill ${status.toLowerCase()}`}>
+                      {status}
+                    </span>
+                  </div>
+                  <h4>{startup.startup_name || startup.startupName}</h4>
+                  <p>Founder: {startup.founder_name || startup.founderName}</p>
+                  <div className="gm-card-meta">
+                    <span>{startup.email}</span>
+                    <span>{startup.transactionCount} transactions</span>
+                  </div>
+                  <div className="gm-card-footer">
+                    <span>Last activity</span>
+                    <strong>
+                      {startup.lastActivityAt
+                        ? new Date(startup.lastActivityAt).toLocaleDateString(
+                            "en-IN",
+                          )
+                        : "Not recorded"}
+                    </strong>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty-state">
+            No startups match the current filters.
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function TransactionsView({ transactions, loading }) {
+  return (
+    <div className="content">
+      <div className="welcome-banner">
+        <div>
+          <span className="eyebrow">ALL STARTUP ACTIVITY</span>
+          <h1>Transactions</h1>
+          <p>
+            View every fund disbursement and utilization entry across all
+            startups.
+          </p>
+        </div>
+        <div className="verified">
+          <ReceiptIndianRupee size={19} /> {transactions.length} transactions
+        </div>
+      </div>
+      <section className="panel gm-list-panel">
+        <div className="gm-toolbar">
+          <div>
+            <h3>All startup transactions</h3>
+            <p>
+              Transactions are grouped by startup and ordered by latest
+              activity.
+            </p>
+          </div>
+        </div>
+        {loading ? (
+          <div className="database-loading">Loading transactions...</div>
+        ) : transactions.length ? (
+          <div className="gm-transaction-table-wrap">
+            <table className="gm-transaction-table">
+              <thead>
+                <tr>
+                  <th>Startup</th>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((transaction) => (
+                  <tr key={transaction.id}>
+                    <td>
+                      <strong>{transaction.startupName}</strong>
+                      <small>{transaction.email}</small>
+                    </td>
+                    <td>
+                      {new Date(transaction.date).toLocaleDateString("en-IN")}
+                    </td>
+                    <td>
+                      <span
+                        className={`transaction-type ${transaction.type.toLowerCase().replaceAll(" ", "-")}`}
+                      >
+                        {transaction.type}
+                      </span>
+                    </td>
+                    <td>{transaction.description}</td>
+                    <td>
+                      <strong>{money(Number(transaction.amount))}</strong>
+                    </td>
+                    <td>
+                      <span
+                        className={`status-pill ${transaction.status.toLowerCase()}`}
+                      >
+                        {transaction.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">No transactions have been recorded.</div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function StartupDetail({ startup, onBack }) {
+  return (
+    <div className="content">
+      <div className="gm-detail-header">
+        <button className="back-btn" onClick={onBack}>
+          <ChevronLeft size={18} /> Back to startup directory
+        </button>
+        <div>
+          <span className="eyebrow">COMPANY DETAILS</span>
+          <h1>{startup.startupName}</h1>
+          <p>
+            {startup.founderName} · {startup.email}
+          </p>
+        </div>
+      </div>
+      <div className="detail-grid">
+        <section className="panel detail-panel">
+          <div className="panel-title">
+            <div>
+              <h3>Founder profile</h3>
+              <p>Registered account information</p>
+            </div>
+            <UserRound size={22} />
+          </div>
+          <DetailRow label="Startup name" value={startup.startupName} />
+          <DetailRow label="Founder name" value={startup.founderName} />
+          <DetailRow label="Email address" value={startup.email} />
+          <DetailRow
+            label="Phone number"
+            value={startup.phone || "Not provided"}
+          />
+          <DetailRow label="CIN" value={startup.cin || "Not provided"} />
+        </section>
+        <section className="panel detail-panel">
+          <div className="panel-title">
+            <div>
+              <h3>Eligibility verification</h3>
+              <p>Current compliance details</p>
+            </div>
+            <ShieldCheck size={22} />
+          </div>
+          <DetailRow
+            label="Registration state"
+            value={startup.eligibility?.registrationState}
+          />
+          <DetailRow
+            label="Entity type"
+            value={startup.eligibility?.entityType}
+          />
+          <DetailRow
+            label="Turnover"
+            value={
+              startup.eligibility?.turnover
+                ? money(Number(startup.eligibility.turnover))
+                : "Not provided"
+            }
+          />
+          <DetailRow
+            label="Incorporation date"
+            value={
+              startup.eligibility?.incorporationDate
+                ? new Date(
+                    `${startup.eligibility.incorporationDate}T00:00:00`,
+                  ).toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "long",
+                    year: "numeric",
+                  })
+                : "Not provided"
+            }
+          />
+          <DetailRow label="Status" value={startup.eligibility?.status} />
+          <DetailRow
+            label="Innovation idea"
+            value={startup.eligibility?.innovationIdea}
+          />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }) {
+  return (
+    <div className="account-line">
+      <span>{label}</span>
+      <strong>{value || "Not provided"}</strong>
     </div>
   );
 }

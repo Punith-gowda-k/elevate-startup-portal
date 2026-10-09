@@ -13,6 +13,8 @@ const app = express();
 const port = Number(process.env.PORT || 3001);
 const scryptAsync = promisify(scrypt);
 const { Pool } = pg;
+const gmSessions = new Map();
+const GM_SESSION_DURATION = 60 * 60 * 1000;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -72,6 +74,18 @@ function hashPassword(password, salt) {
   return scryptAsync(password, salt, 64).then((derivedKey) =>
     derivedKey.toString("hex"),
   );
+}
+
+function requireGM(request, response, next) {
+  const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
+  const session = token && gmSessions.get(token);
+  if (!session || session.expiresAt <= Date.now()) {
+    if (token) gmSessions.delete(token);
+    return response.status(401).json({ error: "GM session expired." });
+  }
+  session.expiresAt = Date.now() + GM_SESSION_DURATION;
+  request.gm = session;
+  next();
 }
 
 app.post("/api/register", async (request, response) => {
@@ -147,6 +161,147 @@ app.post("/api/login", async (request, response) => {
     return response
       .status(500)
       .json({ error: "Unable to authenticate the user." });
+  }
+});
+
+app.post("/api/gm/login", async (request, response) => {
+  const expectedEmail = process.env.GM_EMAIL || "gm@karnataka.gov.in";
+  const expectedPassword = process.env.GM_PASSWORD || "KarnatakaGM@2026";
+  const email = String(request.body.email || "")
+    .trim()
+    .toLowerCase();
+  const password = String(request.body.password || "");
+
+  if (email !== expectedEmail || password !== expectedPassword) {
+    return response.status(401).json({ error: "Invalid GM credentials." });
+  }
+
+  const token = randomBytes(32).toString("hex");
+  gmSessions.set(token, { expiresAt: Date.now() + GM_SESSION_DURATION });
+  return response.json({
+    admin: {
+      id: "gm-admin",
+      email: expectedEmail,
+      role: "Government Manager",
+    },
+    token,
+  });
+});
+
+app.get("/api/gm/startups", requireGM, async (_request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.startup_name, u.founder_name, u.email, u.phone, u.cin,
+              e.registration_state, e.entity_type, e.turnover, e.incorporation_date,
+              e.innovation_idea, e.status AS eligibility_status, e.verified_at,
+              COUNT(t.id) AS transaction_count,
+              COALESCE(SUM(CASE WHEN t.type = 'Fund Disbursement' THEN t.amount ELSE 0 END), 0) AS fund_disbursed,
+              COALESCE(SUM(CASE WHEN t.type = 'Utilization' THEN t.amount ELSE 0 END), 0) AS utilization_total,
+              MAX(t.created_at) AS last_activity_at
+       FROM users u
+       LEFT JOIN eligibility e ON e.user_id = u.id
+       LEFT JOIN transactions t ON t.user_id = u.id
+       GROUP BY u.id, u.startup_name, u.founder_name, u.email, u.phone, u.cin,
+                e.registration_state, e.entity_type, e.turnover, e.incorporation_date,
+                e.innovation_idea, e.status, e.verified_at
+       ORDER BY COALESCE(MAX(t.created_at), u.created_at) DESC`,
+    );
+    return response.json({ startups: result.rows });
+  } catch (error) {
+    console.error(error);
+    return response
+      .status(500)
+      .json({ error: "Unable to load startup activity." });
+  }
+});
+
+app.get("/api/gm/transactions", requireGM, async (_request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id AS user_id, u.startup_name, u.founder_name, u.email,
+              t.id, t.date, t.type, t.description, t.amount, t.status,
+              t.proof_file_name, t.proof_mime_type, t.proof_size, t.created_at
+       FROM transactions t
+       JOIN users u ON u.id = t.user_id
+       ORDER BY t.created_at DESC, t.id DESC`,
+    );
+    return response.json({
+      transactions: result.rows.map((row) => ({
+        id: row.id,
+        userId: row.user_id,
+        startupName: row.startup_name,
+        founderName: row.founder_name,
+        email: row.email,
+        date: row.date,
+        type: row.type,
+        description: row.description,
+        amount: Number(row.amount),
+        status: row.status,
+        proofFileName: row.proof_file_name,
+        proofMimeType: row.proof_mime_type,
+        proofSize: row.proof_size,
+        createdAt: row.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error(error);
+    return response
+      .status(500)
+      .json({ error: "Unable to load startup transactions." });
+  }
+});
+
+app.get("/api/gm/startups/:userId", requireGM, async (request, response) => {
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.startup_name, u.founder_name, u.email, u.phone, u.cin,
+              e.registration_state, e.entity_type, e.turnover, e.incorporation_date,
+              e.innovation_idea, e.status AS eligibility_status, e.verified_at,
+              t.id AS transaction_id, t.date, t.type, t.description, t.amount, t.status AS transaction_status,
+              t.proof_file_name, t.proof_mime_type, t.proof_size, t.created_at AS transaction_created_at
+       FROM users u
+       LEFT JOIN eligibility e ON e.user_id = u.id
+       LEFT JOIN transactions t ON t.user_id = u.id
+       WHERE u.id = $1
+       ORDER BY t.created_at DESC, t.id DESC`,
+      [request.params.userId],
+    );
+    const rows = result.rows;
+    if (!rows.length) {
+      return response.status(404).json({ error: "Startup not found." });
+    }
+    const startup = {
+      ...publicUser(rows[0]),
+      eligibility: {
+        registrationState: rows[0].registration_state,
+        entityType: rows[0].entity_type,
+        turnover: Number(rows[0].turnover),
+        incorporationDate: rows[0].incorporation_date,
+        innovationIdea: rows[0].innovation_idea,
+        status: rows[0].eligibility_status,
+        verifiedAt: rows[0].verified_at,
+      },
+      transactions: rows
+        .filter((row) => row.transaction_id)
+        .map((row) => ({
+          id: row.transaction_id,
+          date: row.date,
+          type: row.type,
+          description: row.description,
+          amount: Number(row.amount),
+          status: row.transaction_status,
+          proofFileName: row.proof_file_name,
+          proofMimeType: row.proof_mime_type,
+          proofSize: row.proof_size,
+          createdAt: row.transaction_created_at,
+        })),
+    };
+    return response.json({ startup });
+  } catch (error) {
+    console.error(error);
+    return response
+      .status(500)
+      .json({ error: "Unable to load startup details." });
   }
 });
 
