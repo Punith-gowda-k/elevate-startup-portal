@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS eligibility (
   turnover NUMERIC(15,2) NOT NULL CHECK (turnover >= 0),
   incorporation_date DATE NOT NULL,
   innovation_idea TEXT NOT NULL CHECK (char_length(innovation_idea) BETWEEN 20 AND 5000),
-  status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Verified')),
+  status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Verified', 'Rejected')),
+  rejected_at TIMESTAMPTZ,
   verified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP

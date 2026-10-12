@@ -165,8 +165,8 @@ app.post("/api/login", async (request, response) => {
 });
 
 app.post("/api/gm/login", async (request, response) => {
-  const expectedEmail = process.env.GM_EMAIL || "gm@karnataka.gov.in";
-  const expectedPassword = process.env.GM_PASSWORD || "KarnatakaGM@2026";
+  const expectedEmail = process.env.GM_EMAIL || "gm@gmail.com";
+  const expectedPassword = process.env.GM_PASSWORD || "Demo@123";
   const email = String(request.body.email || "")
     .trim()
     .toLowerCase();
@@ -193,7 +193,7 @@ app.get("/api/gm/startups", requireGM, async (_request, response) => {
     const result = await pool.query(
       `SELECT u.id, u.startup_name, u.founder_name, u.email, u.phone, u.cin,
               e.registration_state, e.entity_type, e.turnover, e.incorporation_date,
-              e.innovation_idea, e.status AS eligibility_status, e.verified_at,
+              e.innovation_idea, e.status AS eligibility_status, e.verified_at, e.rejected_at,
               COUNT(t.id) AS transaction_count,
               COALESCE(SUM(CASE WHEN t.type = 'Fund Disbursement' THEN t.amount ELSE 0 END), 0) AS fund_disbursed,
               COALESCE(SUM(CASE WHEN t.type = 'Utilization' THEN t.amount ELSE 0 END), 0) AS utilization_total,
@@ -203,10 +203,47 @@ app.get("/api/gm/startups", requireGM, async (_request, response) => {
        LEFT JOIN transactions t ON t.user_id = u.id
        GROUP BY u.id, u.startup_name, u.founder_name, u.email, u.phone, u.cin,
                 e.registration_state, e.entity_type, e.turnover, e.incorporation_date,
-                e.innovation_idea, e.status, e.verified_at
+                e.innovation_idea, e.status, e.verified_at, e.rejected_at
        ORDER BY COALESCE(MAX(t.created_at), u.created_at) DESC`,
     );
-    return response.json({ startups: result.rows });
+
+    const startups = result.rows.map((row) => {
+      const rawStatus = row.eligibility_status || "Pending";
+      const gmReviewStatus =
+        rawStatus === "Verified"
+          ? "Verified"
+          : rawStatus === "Rejected"
+            ? "Rejected"
+            : "Pending GM Review";
+      const isPending = rawStatus === "Pending" || rawStatus === "Pending GM Review";
+
+      return {
+        id: row.id,
+        startupName: row.startup_name,
+        founderName: row.founder_name,
+        email: row.email,
+        phone: row.phone,
+        cin: row.cin,
+        registrationState: row.registration_state,
+        entityType: row.entity_type,
+        turnover: Number(row.turnover),
+        incorporationDate: row.incorporation_date,
+        innovationIdea: row.innovation_idea,
+        eligibilityStatus: rawStatus,
+        gmReviewStatus,
+        isPending,
+        isVerified: rawStatus === "Verified",
+        isRejected: rawStatus === "Rejected",
+        verifiedAt: row.verified_at,
+        rejectedAt: row.rejected_at,
+        transactionCount: Number(row.transaction_count),
+        fundDisbursed: Number(row.fund_disbursed),
+        utilizationTotal: Number(row.utilization_total),
+        lastActivityAt: row.last_activity_at,
+      };
+    });
+
+    return response.json({ startups });
   } catch (error) {
     console.error(error);
     return response
@@ -256,7 +293,7 @@ app.get("/api/gm/startups/:userId", requireGM, async (request, response) => {
     const result = await pool.query(
       `SELECT u.id, u.startup_name, u.founder_name, u.email, u.phone, u.cin,
               e.registration_state, e.entity_type, e.turnover, e.incorporation_date,
-              e.innovation_idea, e.status AS eligibility_status, e.verified_at,
+              e.innovation_idea, e.status AS eligibility_status, e.verified_at, e.rejected_at,
               t.id AS transaction_id, t.date, t.type, t.description, t.amount, t.status AS transaction_status,
               t.proof_file_name, t.proof_mime_type, t.proof_size, t.created_at AS transaction_created_at
        FROM users u
@@ -270,6 +307,16 @@ app.get("/api/gm/startups/:userId", requireGM, async (request, response) => {
     if (!rows.length) {
       return response.status(404).json({ error: "Startup not found." });
     }
+
+    const rawStatus = rows[0].eligibility_status || "Pending";
+    const gmReviewStatus =
+      rawStatus === "Verified"
+        ? "Verified"
+        : rawStatus === "Rejected"
+          ? "Rejected"
+          : "Pending GM Review";
+    const isPending = rawStatus === "Pending" || rawStatus === "Pending GM Review";
+
     const startup = {
       ...publicUser(rows[0]),
       eligibility: {
@@ -280,7 +327,12 @@ app.get("/api/gm/startups/:userId", requireGM, async (request, response) => {
         innovationIdea: rows[0].innovation_idea,
         status: rows[0].eligibility_status,
         verifiedAt: rows[0].verified_at,
+        rejectedAt: rows[0].rejected_at,
       },
+      gmReviewStatus,
+      isPending,
+      isVerified: rawStatus === "Verified",
+      isRejected: rawStatus === "Rejected",
       transactions: rows
         .filter((row) => row.transaction_id)
         .map((row) => ({
@@ -383,8 +435,12 @@ app.post("/api/eligibility", async (request, response) => {
     );
   }
 
+  // Submitting eligibility always creates/refreshes a "Pending" record that
+  // waits for the Government Manager to approve or reject it. The automatic
+  // checks above are still reported back so the founder can see any issues,
+  // but they never grant "Verified" status on their own.
   const eligible = failedReasons.length === 0;
-  const status = eligible ? "Verified" : "Pending";
+  const status = "Pending";
 
   try {
     const result = await pool.query(
@@ -411,7 +467,7 @@ app.post("/api/eligibility", async (request, response) => {
         incorporationDate,
         innovationIdea.trim(),
         status,
-        eligible ? new Date() : null,
+        null,
       ],
     );
     return response.status(200).json({
@@ -497,6 +553,123 @@ app.post(
 );
 
 app.get("/api/health", (_request, response) => response.json({ status: "ok" }));
+
+app.post(
+  "/api/gm/startups/:userId/approve",
+  requireGM,
+  async (request, response) => {
+    const userId = request.params.userId;
+
+    if (!userId) {
+      return response.status(400).json({ error: "Startup account is required." });
+    }
+
+    try {
+      const result = await pool.query(
+        `UPDATE eligibility
+         SET status = 'Verified', verified_at = CURRENT_TIMESTAMP, rejected_at = NULL
+         WHERE user_id = $1
+         RETURNING status, verified_at, rejected_at`,
+        [userId],
+      );
+
+      if (!result.rows.length) {
+        return response.status(404).json({ error: "Startup or eligibility record not found." });
+      }
+
+      return response.json({
+        success: true,
+        eligibility: result.rows[0],
+      });
+    } catch (error) {
+      console.error(error);
+      return response
+        .status(500)
+        .json({ error: "Unable to approve the startup." });
+    }
+  },
+);
+
+app.post(
+  "/api/gm/startups/:userId/reject",
+  requireGM,
+  async (request, response) => {
+    const userId = request.params.userId;
+
+    if (!userId) {
+      return response.status(400).json({ error: "Startup account is required." });
+    }
+
+    try {
+      const result = await pool.query(
+        `UPDATE eligibility
+         SET status = 'Rejected', rejected_at = CURRENT_TIMESTAMP, verified_at = NULL
+         WHERE user_id = $1
+         RETURNING status, verified_at, rejected_at`,
+        [userId],
+      );
+
+      if (!result.rows.length) {
+        return response.status(404).json({ error: "Startup or eligibility record not found." });
+      }
+
+      return response.json({
+        success: true,
+        eligibility: result.rows[0],
+      });
+    } catch (error) {
+      console.error(error);
+      return response
+        .status(500)
+        .json({ error: "Unable to reject the startup." });
+    }
+  },
+);
+
+app.patch(
+  "/api/eligibility/:userId",
+  requireGM,
+  async (request, response) => {
+    const userId = request.params.userId;
+    const { status, verifiedAt, rejectedAt } = request.body;
+
+    if (!userId) {
+      return response.status(400).json({ error: "Startup account is required." });
+    }
+
+    const allowedStatuses = ["Verified", "Pending", "Rejected"];
+    if (!status || !allowedStatuses.includes(status)) {
+      return response.status(400).json({ error: `Status must be one of: ${allowedStatuses.join(", ")}.` });
+    }
+
+    try {
+      const result = await pool.query(
+        `UPDATE eligibility
+         SET status = $1,
+             verified_at = CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz ELSE verified_at END,
+             rejected_at = CASE WHEN $3::timestamptz IS NOT NULL THEN $3::timestamptz ELSE rejected_at END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $4
+         RETURNING status, verified_at, rejected_at`,
+        [status, verifiedAt, rejectedAt, userId],
+      );
+
+      if (!result.rows.length) {
+        return response.status(404).json({ error: "Startup or eligibility record not found." });
+      }
+
+      return response.json({
+        success: true,
+        eligibility: result.rows[0],
+      });
+    } catch (error) {
+      console.error(error);
+      return response
+        .status(500)
+        .json({ error: "Unable to update the eligibility status." });
+    }
+  },
+);
 
 app.listen(port, () => {
   console.log(

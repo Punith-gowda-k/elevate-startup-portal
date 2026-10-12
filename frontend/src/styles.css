@@ -563,7 +563,9 @@ button {
   padding: 22px 32px;
 }
 .loading-card,
-.verified-card {
+.verified-card,
+.pending-card,
+.rejected-card {
   padding: 55px 30px;
   text-align: center;
 }
@@ -578,6 +580,30 @@ button {
   margin: 14px 0 7px;
 }
 .verified-card p {
+  max-width: 500px;
+  margin: 0 auto 22px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pending-card svg {
+  color: #b45309;
+}
+.pending-card h2 {
+  margin: 14px 0 7px;
+}
+.pending-card p {
+  max-width: 500px;
+  margin: 0 auto 22px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.rejected-card svg {
+  color: #b91c1c;
+}
+.rejected-card h2 {
+  margin: 14px 0 7px;
+}
+.rejected-card p {
   max-width: 500px;
   margin: 0 auto 22px;
   color: var(--muted);
@@ -1285,9 +1311,10 @@ td strong {
   flex-direction: column;
   padding: 23px 14px;
   flex-shrink: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #4c78a0 transparent;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  overflow: hidden;
 }
 
 .gm-sidebar .side-brand strong {
@@ -1521,6 +1548,41 @@ td strong {
   font-size: 10px;
 }
 
+.gm-approve-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.gm-approve-actions .primary-btn,
+.gm-approve-actions .secondary-btn {
+  min-height: 42px;
+  padding: 0 20px;
+  font-weight: 700;
+  border-radius: 8px;
+}
+
+.gm-approve-actions .primary-btn {
+  background: var(--green-dark);
+  color: #fff;
+}
+
+.gm-approve-actions .primary-btn:hover {
+  background: #1f6e52;
+}
+
+.gm-approve-actions .secondary-btn {
+  background: #fff;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.gm-approve-actions .secondary-btn:hover {
+  background: #fff3f2;
+}
+
 .gm-startup-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1580,6 +1642,11 @@ td strong {
 .status-pill.pending {
   background: #fff4df;
   color: #9a6410;
+}
+
+.status-pill.rejected {
+  background: #fff0f0;
+  color: #b42318;
 }
 
 .gm-startup-card h4 {
@@ -1679,6 +1746,10 @@ td strong {
   white-space: nowrap;
 }
 
+.gm-activity-panel {
+  margin-top: 22px;
+}
+
 .transaction-type.utilization {
   background: #e7f7f0;
   color: #23765b;
@@ -1759,6 +1830,7 @@ td strong {
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     box-shadow: 10px 0 35px rgba(0, 0, 0, 0.2);
+    overflow-y: auto;
   }
   .gm-sidebar.open {
     transform: translateX(0);

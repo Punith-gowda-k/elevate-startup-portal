@@ -63,6 +63,20 @@ export async function getGMTransactions(token) {
   return transactions;
 }
 
+export async function approveStartup(userId, token) {
+  return request(`/api/gm/startups/${encodeURIComponent(userId)}/approve`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function rejectStartup(userId, token) {
+  return request(`/api/gm/startups/${encodeURIComponent(userId)}/reject`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function getEligibility(userId) {
   const { eligibility } = await request(
     `/api/eligibility/${encodeURIComponent(userId)}`,

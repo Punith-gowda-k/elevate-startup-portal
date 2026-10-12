@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import {
   addTransaction as addTransactionToDatabase,
+  approveStartup as approveStartupRequest,
   authenticateGM,
   authenticateUser,
   getEligibility,
@@ -33,6 +34,7 @@ import {
   getGMTransactions,
   getTransactions,
   registerUser,
+  rejectStartup as rejectStartupRequest,
   verifyEligibility,
 } from "./api.js";
 import {
@@ -652,7 +654,10 @@ function EligibilityPage({ startup, onVerified, onBack }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [verified, setVerified] = useState(false);
+  // Tracks the real eligibility status from the backend:
+  // null (not submitted yet), "Pending", "Verified" or "Rejected".
+  // The dashboard is only reachable once the GM sets this to "Verified".
+  const [status, setStatus] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -667,7 +672,7 @@ function EligibilityPage({ startup, onVerified, onBack }) {
             incorporationDate: record.incorporation_date.slice(0, 10),
             innovationIdea: record.innovation_idea,
           });
-          setVerified(record.status === "Verified");
+          setStatus(record.status || "Pending");
         }
         setLoading(false);
       })
@@ -735,7 +740,9 @@ function EligibilityPage({ startup, onVerified, onBack }) {
         setError(`You are not eligible. ${result.failedReasons.join(" ")}`);
         return;
       }
-      setVerified(true);
+      // The backend always stores "Pending" until the GM approves, so we read
+      // the status straight from the saved record instead of assuming success.
+      setStatus(result.eligibility?.status || "Pending");
       setError("");
     } catch (databaseError) {
       setError(databaseError.message || "Unable to verify the startup.");
@@ -772,16 +779,41 @@ function EligibilityPage({ startup, onVerified, onBack }) {
           <div className="eligibility-card loading-card">
             Loading eligibility details...
           </div>
-        ) : verified ? (
+        ) : status === "Verified" ? (
           <div className="eligibility-card verified-card">
             <CheckCircle2 size={42} />
             <h2>Startup verified</h2>
             <p>
-              Your eligibility information has been submitted and verified
-              successfully.
+              Your startup has been approved by the Government Manager. You can
+              now access your fund dashboard.
             </p>
             <button className="primary-btn" onClick={onVerified}>
               Continue to dashboard
+            </button>
+          </div>
+        ) : status === "Rejected" ? (
+          <div className="eligibility-card rejected-card">
+            <X size={42} />
+            <h2>Application rejected</h2>
+            <p>
+              Your eligibility application was rejected by the Government
+              Manager. Please contact the scheme administrator for details.
+            </p>
+            <button className="secondary-btn" onClick={onBack}>
+              Back to login
+            </button>
+          </div>
+        ) : status === "Pending" ? (
+          <div className="eligibility-card pending-card">
+            <Clock3 size={42} />
+            <h2>Awaiting GM approval</h2>
+            <p>
+              Your eligibility information has been submitted and is pending
+              review by the Government Manager. You will be able to access the
+              dashboard once your startup is approved.
+            </p>
+            <button className="secondary-btn" onClick={onBack}>
+              Back to login
             </button>
           </div>
         ) : (
@@ -945,7 +977,7 @@ function GMDashboard({ session, onLogout }) {
   const [startups, setStartups] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = useState("applied");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [loading, setLoading] = useState(true);
@@ -984,6 +1016,50 @@ function GMDashboard({ session, onLogout }) {
     }
   };
 
+  const approveStartup = async (userId, eligibility) => {
+    setError("");
+    if (
+      !confirm(
+        "Approve this startup? The eligibility status will be set to Verified.",
+      )
+    ) {
+      return false;
+    }
+    try {
+      const result = await approveStartupRequest(userId, session.token);
+      setSelected({ ...selected, eligibility: result.eligibility });
+      const records = await getGMStartups(session.token);
+      setStartups(records);
+      setError("");
+      return true;
+    } catch (approveError) {
+      setError(approveError.message || "Unable to approve the startup.");
+      return false;
+    }
+  };
+
+  const rejectStartup = async (userId, eligibility) => {
+    setError("");
+    if (
+      !confirm(
+        "Reject this startup? This will mark it as Rejected and remove the verified flag.",
+      )
+    ) {
+      return false;
+    }
+    try {
+      const result = await rejectStartupRequest(userId, session.token);
+      setSelected({ ...selected, eligibility: result.eligibility });
+      const records = await getGMStartups(session.token);
+      setStartups(records);
+      setError("");
+      return true;
+    } catch (rejectError) {
+      setError(rejectError.message || "Unable to reject the startup.");
+      return false;
+    }
+  };
+
   const filtered = startups.filter((startup) => {
     const query = search.toLowerCase();
     const matchesSearch =
@@ -998,8 +1074,26 @@ function GMDashboard({ session, onLogout }) {
           .toLowerCase()
           .includes(query),
       );
+
+    const effectiveStatusFilter =
+      view === "applied"
+        ? "Applied Startups"
+        : view === "verified"
+          ? "Verified"
+          : statusFilter;
     const matchesStatus =
-      statusFilter === "All" || startup.eligibilityStatus === statusFilter;
+      effectiveStatusFilter === "All" ||
+      (() => {
+        switch (effectiveStatusFilter) {
+          case "Applied Startups":
+            return startup.gmReviewStatus === "Pending GM Review";
+          case "Verified":
+            return startup.gmReviewStatus === "Verified";
+          default:
+            return true;
+        }
+      })();
+
     return matchesSearch && matchesStatus;
   });
   const totalTransactions = transactions.length;
@@ -1039,13 +1133,22 @@ function GMDashboard({ session, onLogout }) {
           <LayoutDashboard size={19} /> Dashboard
         </button>
         <button
-          className={`gm-nav ${view === "startups" && !selected ? "active" : ""}`}
+          className={`gm-nav ${view === "verified" && !selected ? "active" : ""}`}
           onClick={() => {
-            setView("startups");
+            setView("verified");
             setSelected(null);
           }}
         >
           <Building2 size={19} /> Startups
+        </button>
+        <button
+          className={`gm-nav ${view === "applied" && !selected ? "active" : ""}`}
+          onClick={() => {
+            setView("applied");
+            setSelected(null);
+          }}
+        >
+          <Building2 size={19} /> Applied Startups
         </button>
         <button
           className={`gm-nav ${view === "transactions" ? "active" : ""}`}
@@ -1084,9 +1187,13 @@ function GMDashboard({ session, onLogout }) {
                 ? `Startup: ${selected.startupName}`
                 : view === "dashboard"
                   ? "GM dashboard"
-                  : view === "transactions"
-                    ? "Transactions"
-                    : "Startup directory"}
+                  : view === "verified"
+                    ? "Startups"
+                    : view === "applied"
+                      ? "Applied Startups"
+                      : view === "transactions"
+                        ? "Transactions"
+                        : "Startup directory"}
             </h2>
           </div>
           <div className="user-chip">
@@ -1099,7 +1206,12 @@ function GMDashboard({ session, onLogout }) {
         </header>
         {error && <div className="alert error">{error}</div>}
         {selected ? (
-          <StartupDetail startup={selected} onBack={() => setSelected(null)} />
+          <StartupDetail
+            startup={selected}
+            onBack={() => setSelected(null)}
+            onApprove={approveStartup}
+            onReject={rejectStartup}
+          />
         ) : view === "dashboard" ? (
           <DashboardView
             startups={startups}
@@ -1111,6 +1223,28 @@ function GMDashboard({ session, onLogout }) {
           />
         ) : view === "transactions" ? (
           <TransactionsView transactions={transactions} loading={loading} />
+        ) : view === "verified" ? (
+          <StartupList
+            startups={filtered}
+            loading={loading}
+            search={search}
+            setSearch={setSearch}
+            statusFilter="Verified"
+            setStatusFilter={() => {}}
+            verified={verified}
+            onSelect={loadStartup}
+          />
+        ) : view === "applied" ? (
+          <StartupList
+            startups={filtered}
+            loading={loading}
+            search={search}
+            setSearch={setSearch}
+            statusFilter="Applied Startups"
+            setStatusFilter={() => {}}
+            verified={verified}
+            onSelect={loadStartup}
+          />
         ) : (
           <StartupList
             startups={filtered}
@@ -1258,42 +1392,57 @@ function StartupList({
   loading,
   search,
   setSearch,
-  statusFilter,
-  setStatusFilter,
-  verified,
   onSelect,
+  statusFilter = "All",
 }) {
+  const countText =
+    statusFilter === "Applied Startups"
+      ? "Applied startups"
+      : statusFilter === "Verified"
+        ? "Verified startups"
+        : statusFilter === "Rejected"
+          ? "Rejected startups"
+          : "All startups";
+  const panelTitle =
+    statusFilter === "Verified"
+      ? "Startups"
+      : statusFilter === "Rejected"
+        ? "Rejected startups"
+        : "Applied Startups";
+
   return (
     <div className="content">
       <div className="welcome-banner">
         <div>
-          <span className="eyebrow">PORTAL OVERVIEW</span>
-          <h1>Startup directory</h1>
-          <p>Search and select a startup to view its company details.</p>
+          <span className="eyebrow">GM REVIEW DASHBOARD</span>
+          <h1>{countText}</h1>
+          <p>
+            {statusFilter === "Applied Startups"
+              ? "Startups submitted for GM review."
+              : statusFilter === "Verified"
+                ? "Startups verified by the GM."
+                : statusFilter === "Rejected"
+                  ? "Startups rejected by the GM."
+                  : "Search and select a startup to view its company details."}
+          </p>
         </div>
         <div className="verified">
-          <ShieldCheck size={19} /> Administration view
+          <ShieldCheck size={19} /> GM administration view
         </div>
       </div>
       <div className="stat-grid">
         <StatCard
           icon={Building2}
-          label="Registered startups"
+          label={countText}
           value={String(startups.length)}
-          tone="blue"
-        />
-        <StatCard
-          icon={CheckCircle2}
-          label="Verified startups"
-          value={String(verified)}
-          tone="green"
+          tone="orange"
         />
       </div>
       <section className="panel gm-list-panel">
         <div className="gm-toolbar">
           <div>
-            <h3>All startups</h3>
-            <p>Select a company card to open its profile.</p>
+            <h3>{panelTitle}</h3>
+            <p>Startups submitted for GM review.</p>
           </div>
           <div className="gm-search">
             <Search size={17} />
@@ -1303,22 +1452,15 @@ function StartupList({
               placeholder="Search startup or founder"
             />
           </div>
-          <select
-            className="filter-select"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option>All</option>
-            <option>Verified</option>
-            <option>Pending</option>
-          </select>
         </div>
         {loading ? (
           <div className="database-loading">Loading startup directory...</div>
         ) : startups.length ? (
           <div className="gm-startup-grid">
             {startups.map((startup) => {
-              const status = startup.eligibilityStatus || "Pending";
+              const status = startup.gmReviewStatus || "Pending";
+              const statusClass =
+                startup.gmReviewStatus?.toLowerCase() || "pending";
               return (
                 <button
                   key={startup.id}
@@ -1329,7 +1471,7 @@ function StartupList({
                     <div className="gm-startup-icon">
                       <Building2 size={20} />
                     </div>
-                    <span className={`status-pill ${status.toLowerCase()}`}>
+                    <span className={`status-pill ${statusClass}`}>
                       {status}
                     </span>
                   </div>
@@ -1445,7 +1587,7 @@ function TransactionsView({ transactions, loading }) {
   );
 }
 
-function StartupDetail({ startup, onBack }) {
+function StartupDetail({ startup, onBack, onApprove, onReject }) {
   return (
     <div className="content">
       <div className="gm-detail-header">
@@ -1521,8 +1663,85 @@ function StartupDetail({ startup, onBack }) {
             label="Innovation idea"
             value={startup.eligibility?.innovationIdea}
           />
+          {startup.eligibility?.status === "Pending" && (
+            <div className="gm-approve-actions">
+              <button
+                className="primary-btn"
+                onClick={() => onApprove(startup.id, startup.eligibility)}
+              >
+                <CheckCircle2 size={17} /> Approve
+              </button>
+              <button
+                className="secondary-btn"
+                onClick={() => onReject(startup.id, startup.eligibility)}
+              >
+                <X size={17} /> Reject
+              </button>
+            </div>
+          )}
         </section>
       </div>
+      <section className="panel gm-activity-panel">
+        <div className="panel-title">
+          <div>
+            <h3>Startup activity</h3>
+            <p>Fund disbursements and utilization entries</p>
+          </div>
+          <ReceiptIndianRupee size={22} />
+        </div>
+        {startup.transactions?.length ? (
+          <div className="gm-transaction-table-wrap">
+            <table className="gm-transaction-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Description</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {startup.transactions.map((transaction) => (
+                  <tr key={transaction.id}>
+                    <td>
+                      {new Date(transaction.date).toLocaleDateString("en-IN")}
+                    </td>
+                    <td>
+                      <span
+                        className={`transaction-type ${String(transaction.type)
+                          .toLowerCase()
+                          .replaceAll(" ", "-")}`}
+                      >
+                        {transaction.type}
+                      </span>
+                    </td>
+                    <td>{transaction.description}</td>
+                    <td>
+                      <strong>{money(Number(transaction.amount))}</strong>
+                    </td>
+                    <td>
+                      <span
+                        className={`status-pill ${String(
+                          transaction.status || "",
+                        )
+                          .toLowerCase()
+                          .replaceAll(" ", "-")}`}
+                      >
+                        {transaction.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">
+            No activity has been recorded for this startup.
+          </div>
+        )}
+      </section>
     </div>
   );
 }
